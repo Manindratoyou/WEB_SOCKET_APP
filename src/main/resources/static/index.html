@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>WebSocket Chat Demo</title>
+    <style>
+        body { max-width: 760px; margin: 2rem auto; padding: 0 1rem; font: 16px system-ui, sans-serif; }
+        form, .identity { display: flex; gap: .6rem; margin: 1rem 0; }
+        input { padding: .65rem; }
+        #sender { width: 10rem; }
+        #content { flex: 1; }
+        button { padding: .65rem 1rem; cursor: pointer; }
+        #status { color: #555; }
+        #messages { padding-left: 1.4rem; }
+        #messages li { padding: .35rem 0; overflow-wrap: anywhere; }
+        time { color: #666; font-size: .85em; margin-right: .45rem; }
+    </style>
+</head>
+<body>
+<h1>WebSocket Chat Demo</h1>
+<p id="status">Connecting…</p>
+
+<form id="chat-form">
+    <input id="sender" maxlength="40" placeholder="Your name" aria-label="Your name">
+    <input id="content" maxlength="500" placeholder="Type a message" aria-label="Message" required>
+    <button id="send" type="submit" disabled>Send</button>
+</form>
+<ul id="messages" aria-live="polite"></ul>
+
+<!-- STOMP carries destinations and message frames over the WebSocket connection. -->
+<script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.1.0/bundles/stomp.umd.min.js"></script>
+<script>
+    const status = document.getElementById('status');
+    const sendButton = document.getElementById('send');
+    const messages = document.getElementById('messages');
+    const client = new StompJs.Client({
+        // Same-origin URL works for localhost and for a page served behind HTTPS.
+        brokerURL: `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`,
+        reconnectDelay: 3000,
+        onConnect: () => {
+            status.textContent = 'Connected. Open this page in another tab to try a second client.';
+            sendButton.disabled = false;
+            client.subscribe('/topic/messages', frame => {
+                const message = JSON.parse(frame.body);
+                const item = document.createElement('li');
+                const time = document.createElement('time');
+                time.dateTime = message.sentAt;
+                time.textContent = new Date(message.sentAt).toLocaleTimeString();
+                item.append(time, document.createTextNode(`${message.sender}: ${message.content}`));
+                messages.appendChild(item);
+            });
+        },
+        onWebSocketClose: () => {
+            status.textContent = 'Disconnected. Reconnecting…';
+            sendButton.disabled = true;
+        },
+        onStompError: frame => {
+            status.textContent = `Broker error: ${frame.headers.message || 'unknown error'}`;
+        }
+    });
+
+    client.activate();
+
+    document.getElementById('chat-form').addEventListener('submit', event => {
+        event.preventDefault();
+        const content = document.getElementById('content');
+        if (!content.value.trim() || !client.connected) return;
+        client.publish({
+            destination: '/app/chat.send',
+            body: JSON.stringify({
+                sender: document.getElementById('sender').value,
+                content: content.value
+            })
+        });
+        content.value = '';
+        content.focus();
+    });
+
+    window.addEventListener('beforeunload', () => client.deactivate());
+</script>
+</body>
+</html>
